@@ -2,6 +2,7 @@ import uuid
 import random
 from typing import Tuple, Dict, Any
 
+
 from openenv.core.env_server import Environment
 from .models import HospitalAction, HospitalObservation, HospitalState
 
@@ -38,7 +39,6 @@ class HospitalEnvironment(Environment):
         super().__init__()
         if HospitalEnvironment._global_state is not None:
             self._state = HospitalEnvironment._global_state
-            print("STEP STATE ID AFTER:", id(self._state))
         else:
             self._state = HospitalState(
                 episode_id=str(uuid.uuid4()),
@@ -49,12 +49,14 @@ class HospitalEnvironment(Environment):
                 treated_patients=[],
                 available_resources={"doctor": 3, "bed": 2},
             )
+        HospitalEnvironment._global_state = self._state
+        
 
     def reset(self) -> HospitalObservation:
         print("RESET STATE ID:", id(self._state))
         num_patients = random.randint(5, 10)
         patients = [generate_patient(i) for i in range(num_patients)]
-        self._state = HospitalState(
+        self._state = HospitalState(          # ← this creates a NEW object
             episode_id=str(uuid.uuid4()),
             current_time=0,
             step_count=0,
@@ -63,85 +65,59 @@ class HospitalEnvironment(Environment):
             treated_patients=[],
             available_resources=dict(INITIAL_RESOURCES),
         )
+        HospitalEnvironment._global_state = self._state   
+        # Remove all print statements
         return self._build_observation("Environment reset. New episode started.")
 
-    def step(self, action: HospitalAction) -> Tuple[HospitalObservation, float, bool, Dict[str, Any]]:
-        print("DEBUG ACTION:", action)
-        print("CURRENT STATE:", self._state)
-        print("GLOBAL STATE:", HospitalEnvironment._global_state)
-        print("STEP STATE ID BEFORE:", id(self._state))
-
+    def step(self, action: HospitalAction) -> HospitalObservation:
         state = self._state
-        if not hasattr(self, "_state") or not self._state.patients:
-            print("STATE EMPTY → RESETTING")
-            return self.reset()
         reward = 0.0
         info: Dict[str, Any] = {}
 
-        # --- Validate patient exists ---
+        if not state.patients:
+            obs = self._build_observation("No active episode. Call /reset first.")
+            return obs, reward, self._check_done(), {"error": "No active episode."}
+
         patient = next((p for p in state.patients if p["id"] == action.patient_id), None)
         if patient is None:
             msg = f"Invalid action: patient_id {action.patient_id} does not exist."
-            obs = self._tick_and_build(msg)
-            done = self._check_done()
-            return obs
+            return self._tick_and_build(msg)
 
         if patient["treated"]:
-            msg = f"Invalid action: patient {action.patient_id} is already treated."
-            obs = self._tick_and_build(msg)
-            done = self._check_done()
-            return obs
+            msg = f"Patient {action.patient_id} is already treated."
+            return self._tick_and_build(msg)
 
-        # --- Handle action types ---
         if action.action_type == "assign_priority":
             if action.priority is None:
-                msg = f"assign_priority requires a priority value."
-                obs = self._tick_and_build(msg)
-                done = self._check_done()
-                return obs
+                msg = "assign_priority requires a priority value."
+                return self._tick_and_build(msg)
             patient["priority"] = action.priority
             msg = f"Assigned priority {action.priority} to patient {action.patient_id}."
 
         elif action.action_type == "treat":
-            disease_info = disease_db.get(patient["disease"], {})
-            needed = dict(disease_info.get("resource_need", {}))
-
-            # Override with explicitly requested resources if provided
+            needed = dict(disease_db.get(patient["disease"], {}).get("resource_need", {}))
             if action.resources:
                 needed = action.resources
 
-            # Check resource availability
             for resource, amount in needed.items():
-                available = state.available_resources.get(resource, 0)
-                if available < amount:
-                    msg = (
-                        f"Insufficient resources to treat patient {action.patient_id}: "
-                        f"need {amount} {resource}, have {available}."
-                    )
-                    obs = self._tick_and_build(msg)
-                    done = self._check_done()
-                    return obs
+                if state.available_resources.get(resource, 0) < amount:
+                    msg = (f"Insufficient {resource}: need {amount}, "
+                        f"have {state.available_resources.get(resource, 0)}.")
+                    return self._tick_and_build(msg)
 
-            # Allocate resources
             for resource, amount in needed.items():
                 state.available_resources[resource] -= amount
 
-            # Mark patient treated
             patient["treated"] = True
-            if action.patient_id in state.waiting_queue:
-                state.waiting_queue.remove(action.patient_id)
+            state.waiting_queue = [i for i in state.waiting_queue if i != action.patient_id]
             state.treated_patients.append(action.patient_id)
             msg = f"Patient {action.patient_id} ({patient['disease']}) treated successfully."
 
         else:
             msg = f"Unknown action_type '{action.action_type}'."
-            obs = self._tick_and_build(msg)
-            done = self._check_done()
-            return obs
+            return self._tick_and_build(msg)
 
-        obs = self._tick_and_build(msg)
-        done = self._check_done()
-        return obs
+        return self._tick_and_build(msg)
 
     def _tick_and_build(self, message: str) -> HospitalObservation:
         state = self._state
