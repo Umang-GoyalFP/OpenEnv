@@ -5,15 +5,7 @@ from .models import HospitalAction, HospitalObservation, HospitalState
 class HospitalEnv(EnvClient[HospitalAction, HospitalObservation, HospitalState]):
 
     def _step_payload(self, action: HospitalAction) -> dict:
-        payload = {
-            "action_type": action.action_type,
-            "patient_id": action.patient_id,
-        }
-        if action.priority is not None:
-            payload["priority"] = action.priority
-        if action.resources is not None:
-            payload["resources"] = action.resources
-        return payload
+        return {"actions": action.actions}
 
     def _parse_result(self, payload: dict):
         obs_data = payload["observation"]
@@ -22,11 +14,12 @@ class HospitalEnv(EnvClient[HospitalAction, HospitalObservation, HospitalState])
             patients=obs_data["patients"],
             available_resources=obs_data["available_resources"],
             message=obs_data["message"],
+            total_reward=obs_data.get("total_reward", 0.0),
         )
         return {
-            "observation":obs,
-            "reward":payload.get("reward", 0.0),
-            "done":payload.get("done", False),
+            "observation": obs,
+            "reward": payload.get("reward", 0.0),
+            "done": payload.get("done", False),
         }
 
     def _parse_state(self, payload: dict) -> HospitalState:
@@ -38,4 +31,7 @@ class HospitalEnv(EnvClient[HospitalAction, HospitalObservation, HospitalState])
             waiting_queue=payload.get("waiting_queue", []),
             treated_patients=payload.get("treated_patients", []),
             available_resources=payload.get("available_resources", {}),
+            active_treatments=payload.get("active_treatments", []),
+            total_reward=payload.get("total_reward", 0.0),
+            next_patient_id=payload.get("next_patient_id", 0),
         )

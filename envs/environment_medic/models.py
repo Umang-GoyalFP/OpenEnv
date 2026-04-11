@@ -3,13 +3,9 @@ from typing import Optional, Dict, List
 from openenv.core.env_server import Action, Observation, State
 
 
-
 class HospitalAction(Action):
-    action_type: str  # "assign_priority" or "treat"
-    patient_id: int
-    priority: Optional[int] = None
-    resources: Optional[Dict[str, int]] = None
-
+    # list of dicts: [{action_type, patient_id, priority?}, ...]
+    actions: List[dict] = field(default_factory=list)
 
 
 class HospitalObservation(Observation):
@@ -17,7 +13,7 @@ class HospitalObservation(Observation):
     patients: List[dict]
     available_resources: Dict[str, int]
     message: str
-
+    total_reward: float = 0.0
 
 
 class HospitalState(State):
@@ -28,3 +24,6 @@ class HospitalState(State):
     waiting_queue: List[int] = field(default_factory=list)
     treated_patients: List[int] = field(default_factory=list)
     available_resources: Dict[str, int] = field(default_factory=dict)
+    active_treatments: List[dict] = field(default_factory=list)  # {patient_id, beds, treatment_end_step}
+    total_reward: float = 0.0
+    next_patient_id: int = 0
