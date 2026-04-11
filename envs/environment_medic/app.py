@@ -36,12 +36,16 @@ def reset():
 @app.post("/step")
 def step(req: ActionRequest):
     action = HospitalAction(
-        action_type=req.action_type,
-        patient_id=req.patient_id,
-        priority=req.priority,
-        resources=req.resources,
+        actions=[{
+        "action_type": req.action_type,
+        "patient_id": req.patient_id,
+        "priority": req.priority,
+        "resources": req.resources,
+        }]
     )
-    obs, reward, done, info = _env.step(action)
+    reward_before = _env.state.total_reward  # snapshot before
+    obs = _env.step(action)
+    step_reward = obs.total_reward - reward_before
     return {
         "observation": {
             "current_time": obs.current_time,
@@ -49,9 +53,10 @@ def step(req: ActionRequest):
             "available_resources": obs.available_resources,
             "message": obs.message,
         },
-        "reward": reward,
-        "done": done,
-        "info": info,
+        "step_reward": step_reward,
+        "total_reward": obs.total_reward,
+        "done": _env._check_done(),
+        
     }
 
 
@@ -67,3 +72,4 @@ def state():
         "treated_patients": s.treated_patients,
         "available_resources": s.available_resources,
     }
+
